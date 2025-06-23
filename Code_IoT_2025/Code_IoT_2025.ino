@@ -1,5 +1,5 @@
 /*  CODING IOT TRACKER SHUTTLE ITB SI BIRU 2025 
-    Developed by : Raegrand Archamadeus, Zaki Azzamy, Kenny Pramanik
+    Developed by : Raegrand Archamadeus, Zaki Azzamy, Kenny Pramanik,...
     Last Update  : 24/06/2025 
 */
 
