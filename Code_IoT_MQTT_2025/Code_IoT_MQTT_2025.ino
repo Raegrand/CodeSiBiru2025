@@ -4,8 +4,8 @@
 */
 
 #include <WiFi.h>
-#include <PubSubClient.h>
-
+#include <Wire.h>
+#include <HardwareSerial.h>
 /******** DEFINISI ********/
 //WIFI
 const char *ssid = "ITB IoT";
@@ -15,6 +15,8 @@ const char *password = "";
 const char* mqtt_server = "192.168.17.222";
 const int   mqtt_port   = 1883;
 const char* gps_topic = "IoTSiBiru/GPS";
+
+
 void reconnectMQTT();
 
 /******** PROGRAM ********/
