@@ -35,6 +35,39 @@ const char *password = "";
 // Insert RTDB URLefine the RTDB URL
 #define DATABASE_URL "https://esp32-firebase-demo-f2551-default-rtdb.asia-southeast1.firebasedatabase.app/"
 
+FirebaseData fbdo;
+FirebaseData auth;
+FirebaseConfig config;
+
+String uid;
+String databasePath;
+String latPath, lgtPath, timePath; 
+
+//GPS
+Hardwareserial gpsSerial(1);
+const int RXPin = 16;
+const int TXPin = 17;
+
+struct GPSRawData {
+    double latitude;
+    double longitude;
+    string timestamp;
+    int day, month, year;
+    int hours, minutes, seconds;
+    String timestamp;
+};
+
+struct GPSData {
+    double latitude;
+    double longitude;
+    double timestamp;
+};
+
+GPSRawData latestGPSRawData;
+GPSData latest GPSData;
+bool gpsDataValid = false;
+String gpsBuffer = "";
+
 //FUNGSI
 void initWiFi();
 void sendString(String path, String value);
@@ -44,7 +77,9 @@ void reconnectWiFi();
 /******** PROGRAM ********/
 void setup() {
   Serial.begin(115200);
-
+  //Setup GPS
+  gpsSerial.begin(9600, SERIAL_8N1, RXPin, TXPin);
+    
   //Setup Wifi
   initWiFi();
 
@@ -75,13 +110,12 @@ void setup() {
 
   // Update database path
   databasePath = "/ShuttleData/" + uid + "/Rute1/Bus1";
-
   // Update database path for sensor readings
   mhsPath = databasePath + "/countMhs";
   latPath = databasePath + "/latitude";
   lgtPath = databasePath + "/longitude";
   terPath = databasePath + "/Terminal";
-
+  timePath = databasePath + "/timestamp";
 }
 
 void loop() {
@@ -89,6 +123,21 @@ void loop() {
   if (WiFi.status() != WL_CONNECTED){
     void reconnectWiFi();
   }
+    while(gpsSerial.available()) {
+        char c = gpsSerial.read();
+        gpsBuffer += c;
+        if (c == '\n') {
+            processGPSData(gpsData);
+            gpsData = "";
+        }
+    }
+    static unsigned long lastSent = 0;
+    if(millis() - lastSent > 10000 && gpsDataValid){
+        sendFloat(latPath, latestGPSData.latitude);
+        sendFloat(lgtPath, latestGPSData.longitude);
+        sendString(timePath, latestGPSData.timestamp);
+        lastSent = millis();
+    }
 }
 
 /**** Fungsi WiFI *****/
@@ -151,4 +200,85 @@ void sendFloat(String path, float value){
     Serial.println("FAILED");
     Serial.println("REASON: " + fbdo.errorReason());
   }
+}
+
+//Parsing GPS
+void processGPSData(String raw){
+    if(raw.startswith("$GPGGA")){
+        parseGPGGA(raw);
+        convertToLocalTime();
+    } else if (raw.startsWith("$GPRMC")){
+        parseGPRMC(raw);
+    }
+}
+
+void parseGPGGA(String gpgga) {
+  String tokens[15];
+  int idx = 0, lastIdx = 0;
+  for (int i = 0; i < gpgga.length(); i++) {
+    if (gpgga[i] == ',' || gpgga[i] == '*') {
+      tokens[idx++] = gpgga.substring(lastIdx, i);
+      lastIdx = i + 1;
+    }
+  }
+
+  if (idx > 6) {
+    String utcTime = tokens[1];
+    latestGPSRawData.hours = utcTime.substring(0, 2).toInt();
+    latestGPSRawData.minutes = utcTime.substring(2, 4).toInt();
+    latestGPSRawData.seconds = utcTime.substring(4, 6).toInt();
+
+    latestGPSRawData.latitude = nmeaToDecimal(tokens[2]);
+    latestGPSRawData.longitude = nmeaToDecimal(tokens[4]);
+
+    latestGPSData.latitude = latestGPSRawData.latitude;
+    latestGPSData.longitude = latestGPSRawData.longitude;
+
+    gpsDataValid = (latestGPSData.latitude != 0 || latestGPSData.longitude != 0);
+  }
+}
+
+void parseGPRMC(String gprmc) {
+  String tokens[15];
+  int idx = 0, lastIdx = 0;
+  for (int i = 0; i < gprmc.length(); i++) {
+    if (gprmc[i] == ',' || gprmc[i] == '*') {
+      tokens[idx++] = gprmc.substring(lastIdx, i);
+      lastIdx = i + 1;
+    }
+  }
+
+  if (idx > 9) {
+    String utcDate = tokens[9];
+    latestGPSRawData.day = utcDate.substring(0, 2).toInt();
+    latestGPSRawData.month = utcDate.substring(2, 4).toInt();
+    latestGPSRawData.year = 2000 + utcDate.substring(4, 6).toInt();
+  }
+}
+
+void convertToLocalTime() {
+  int offsetHours = 7; // Waktu Indonesia Barat
+  latestGPSRawData.hours += offsetHours;
+
+  if (latestGPSRawData.hours >= 24) {
+    latestGPSRawData.hours -= 24;
+    latestGPSRawData.day++;
+  }
+
+  char timeBuf[25];
+  snprintf(timeBuf, sizeof(timeBuf), "%04d-%02d-%02d %02d:%02d:%02d",
+           latestGPSRawData.year, latestGPSRawData.month, latestGPSRawData.day,
+           latestGPSRawData.hours, latestGPSRawData.minutes, latestGPSRawData.seconds);
+  latestGPSRawData.timestamp = String(timeBuf);
+  latestGPSData.timestamp = latestGPSRawData.timestamp;
+
+  Serial.println("Timestamp: " + latestGPSData.timestamp);
+}
+
+double nmeaToDecimal(String coord) {
+  if (coord == "") return 0.0;
+  double raw = coord.toDouble();
+  int deg = int(raw / 100);
+  double min = raw - (deg * 100);
+  return deg + (min / 60.0);
 }
